@@ -138,6 +138,27 @@
             const closedIcon = createIcon('red');
             const userIcon = createIcon('blue');
 
+            // --- GEOCODING CACHE ---
+            const geocodeCache = {};
+
+            const geocodeAddress = async (address) => {
+                if (geocodeCache[address]) return geocodeCache[address];
+                const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(address + ', Alachua County Florida')}`;
+                try {
+                    const response = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+                    if (!response.ok) throw new Error('Network response was not ok');
+                    const data = await response.json();
+                    if (data && data[0]) {
+                        const coords = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+                        geocodeCache[address] = coords;
+                        return coords;
+                    }
+                } catch (e) {
+                    console.error('Geocoding failed for', address, e);
+                }
+                return null;
+            };
+
             // --- TIME AND DATE PARSING LOGIC ---
             
             // A helper to parse time strings like "11:00 AM" into minutes from midnight
@@ -222,12 +243,24 @@
                     download: true,
                     header: true,
                     skipEmptyLines: true,
-                    complete: (results) => {
-                        locationsData = results.data.filter(item => item.Latitude && item.Longitude);
+                    complete: async (results) => {
+                        locationsData = results.data.filter(item => item.Address);
                         if (locationsData.length === 0) {
                             loadingOverlay.innerHTML = '<p class="text-red-600 font-semibold">No locations found.</p>';
                             return;
                         }
+
+                        for (const item of locationsData) {
+                            if (!item.Latitude || !item.Longitude) {
+                                const coords = await geocodeAddress(item.Address);
+                                if (coords) {
+                                    item.Latitude = coords.lat;
+                                    item.Longitude = coords.lon;
+                                }
+                            }
+                        }
+
+                        locationsData = locationsData.filter(it => it.Latitude && it.Longitude);
                         plotLocations(locationsData);
                         const bounds = L.latLngBounds(locationsData.map(loc => [parseFloat(loc.Latitude), parseFloat(loc.Longitude)]));
                         map.fitBounds(bounds);
@@ -241,11 +274,19 @@
             };
 
             // --- MAP PLOTTING ---
-            const plotLocations = (locations) => {
-                locations.forEach(item => {
-                    const lat = parseFloat(item.Latitude);
-                    const lon = parseFloat(item.Longitude);
-                    
+            const plotLocations = async (locations) => {
+                for (const item of locations) {
+                    let lat = parseFloat(item.Latitude);
+                    let lon = parseFloat(item.Longitude);
+                    if (!lat || !lon) {
+                        const coords = await geocodeAddress(item.Address);
+                        if (!coords) continue;
+                        lat = coords.lat;
+                        lon = coords.lon;
+                        item.Latitude = lat;
+                        item.Longitude = lon;
+                    }
+
                     const serving = isCurrentlyServing(item);
                     const icon = serving ? servingIcon : closedIcon;
 
@@ -263,7 +304,7 @@
                     marker.bindPopup(popupContent);
                     item.marker = marker; // Store marker for later reference
                     markers.push(marker);
-                });
+                }
             };
 
             // --- GEOLOCATION AND "FIND CLOSEST" LOGIC ---
