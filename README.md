@@ -15,3 +15,4 @@ The interactive map offers a quick way to find a nearby meal site. Each marker r
 
 If latitude and longitude aren't provided in the spreadsheet, the application geocodes each address using the public Nominatim service from OpenStreetMap. Results are cached locally in your browser to avoid unnecessary lookups.
 
+=======

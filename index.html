@@ -275,6 +275,12 @@
                             });
                         });
                         locationsData = await geocodeAll(rows);
+                Papa.parse(GOOGLE_SHEET_URL, {
+                    download: true,
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: (results) => {
+                        locationsData = results.data.filter(item => item.Latitude && item.Longitude);
                         if (locationsData.length === 0) {
                             loadingOverlay.innerHTML = '<p class="text-red-600 font-semibold">No locations found.</p>';
                             return;
@@ -286,6 +292,12 @@
                     })
                     .catch(err => {
                         console.error('Error fetching or parsing data:', err);
+                        const bounds = L.latLngBounds(locationsData.map(loc => [parseFloat(loc.Latitude), parseFloat(loc.Longitude)]));
+                        map.fitBounds(bounds);
+                        loadingOverlay.style.display = 'none'; // Hide loading spinner
+                    },
+                    error: (err) => {
+                        console.error("Error fetching or parsing data:", err);
                         loadingOverlay.innerHTML = '<p class="text-red-600 font-semibold">Could not load data. Please try again later.</p>';
                     });
             };
