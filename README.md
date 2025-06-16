@@ -1,9 +1,8 @@
 # Free Summer Lunch Map
 
-This project shows a map of locations in Alachua County, Florida where free summer meals are available for students. The data comes from a public Google Sheet maintained by the school district.
+This project shows a map of locations in Alachua County, Florida where free summer meals are available for students. The data is stored locally in this repository in `data.csv`.
 
 - **Live Demo:** [View the Map](https://sounny.github.io/freesummerlunch2025/)
-- **Spreadsheet Source:** [Google Sheet](https://docs.google.com/spreadsheets/d/e/2PACX-1vRpmuCVlo5jHb0hF8VtNN3grE4XGLVMZrApkTZ0GsWj_aS9EMKUGUC5cb065FKOcsQserm1DKkVNaZT/pubhtml?gid=1766884149&single=true)
 
 ## About the Program
 
@@ -11,5 +10,5 @@ Each summer the Alachua County Public Schools provide free breakfast and lunch t
 
 ## About the Map
 
-The interactive map offers a quick way to find a nearby meal site. Each marker represents a location from the spreadsheet. When available, the markers indicate if a site is currently serving meals. Click a marker to see the address, serving dates and times, and a link for driving directions.
+The interactive map offers a quick way to find a nearby meal site. Each marker represents a location from the dataset. When available, the markers indicate if a site is currently serving meals. Click a marker to see the address, serving dates and times, and a link for driving directions.
 

@@ -104,7 +104,8 @@
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             // --- CONFIGURATION ---
-            const GOOGLE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRpmuCVlo5jHb0hF8VtNN3grE4XGLVMZrApkTZ0GsWj_aS9EMKUGUC5cb065FKOcsQserm1DKkVNaZT/pub?gid=1766884149&single=true&output=csv';
+            // Data comes from a local CSV exported from the school district
+            const DATA_URL = 'data.csv';
             const ALACHUA_COUNTY_CENTER = [29.6516, -82.3248];
             const INITIAL_ZOOM = 10;
 
@@ -239,12 +240,20 @@
             
             // --- DATA FETCHING AND PROCESSING ---
             const loadData = () => {
-                Papa.parse(GOOGLE_SHEET_URL, {
+                Papa.parse(DATA_URL, {
                     download: true,
                     header: true,
                     skipEmptyLines: true,
                     complete: async (results) => {
-                        locationsData = results.data.filter(item => item.Address);
+                        locationsData = results.data
+                            .filter(item => item.Address && !item.Location.startsWith('NOTE'))
+                            .map(row => ({
+                                Site: row.Location,
+                                Address: row.Address,
+                                'Serving Time': row['Meal Times'],
+                                Dates: (row['Dates of Service'] || '').split('(')[0].trim(),
+                                Days: (row['Dates of Service'] || '').match(/\(([^)]+)\)/)?.[1] || ''
+                            }));
                         if (locationsData.length === 0) {
                             loadingOverlay.innerHTML = '<p class="text-red-600 font-semibold">No locations found.</p>';
                             return;
