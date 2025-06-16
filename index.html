@@ -104,7 +104,7 @@
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             // --- CONFIGURATION ---
-            const GOOGLE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRpmuCVlo5jHb0hF8VtNN3grE4XGLVMZrApkTZ0GsWj_aS9EMKUGUC5cb065FKOcsQserm1DKkVNaZT/pub?output=csv&gid=1766884149';
+            const GOOGLE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRpmuCVlo5jHb0hF8VtNN3grE4XGLVMZrApkTZ0GsWj_aS9EMKUGUC5cb065FKOcsQserm1DKkVNaZT/pub?gid=1766884149&single=true&output=csv';
             const ALACHUA_COUNTY_CENTER = [29.6516, -82.3248];
             const INITIAL_ZOOM = 10;
 
@@ -121,6 +121,7 @@
             }).addTo(map);
 
             let locationsData = []; // To store the parsed spreadsheet data
+            const markers = []; // Keep track of added markers
 
             // --- ICONS ---
             const createIcon = (color) => {
@@ -223,7 +224,13 @@
                     skipEmptyLines: true,
                     complete: (results) => {
                         locationsData = results.data.filter(item => item.Latitude && item.Longitude);
+                        if (locationsData.length === 0) {
+                            loadingOverlay.innerHTML = '<p class="text-red-600 font-semibold">No locations found.</p>';
+                            return;
+                        }
                         plotLocations(locationsData);
+                        const bounds = L.latLngBounds(locationsData.map(loc => [parseFloat(loc.Latitude), parseFloat(loc.Longitude)]));
+                        map.fitBounds(bounds);
                         loadingOverlay.style.display = 'none'; // Hide loading spinner
                     },
                     error: (err) => {
@@ -255,6 +262,7 @@
                     const marker = L.marker([lat, lon], { icon: icon }).addTo(map);
                     marker.bindPopup(popupContent);
                     item.marker = marker; // Store marker for later reference
+                    markers.push(marker);
                 });
             };
 
