@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alachua County Student Lunch Locations</title>
+
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Leaflet.js for the interactive map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <!-- PapaParse for reading the Google Sheet (CSV) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        /* Basic styles for the page and map */
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow: hidden; /* Prevent scrolling the body */
+        }
+        #map {
+            height: 100vh;
+            width: 100vw;
+            z-index: 10;
+        }
+        /* Custom Leaflet popup styles */
+        .leaflet-popup-content-wrapper {
+            border-radius: 8px;
+        }
+        .leaflet-popup-content {
+            margin: 14px 20px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .leaflet-popup-content h3 {
+            font-weight: 700;
+            margin: 0 0 8px;
+            color: #1f2937;
+        }
+        .leaflet-popup-content p {
+            margin: 4px 0;
+        }
+        /* Custom icon colors */
+        .serving-now-icon {
+            filter: hue-rotate(240deg) brightness(1.2); /* Greenish-blue */
+        }
+        .closed-now-icon {
+            filter: grayscale(1) brightness(1.5) contrast(0.8); /* Grey */
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <!-- Main map container -->
+    <div id="map"></div>
+
+    <!-- UI elements positioned over the map -->
+    <div class="absolute top-0 left-0 p-4 w-full md:w-auto z-20">
+        <div class="bg-white p-4 rounded-lg shadow-lg max-w-sm">
+            <h1 class="text-xl font-bold text-gray-800">Alachua County Meal Sites</h1>
+            <p class="text-sm text-gray-600 mt-1">Live status of free student meal locations.</p>
+            <button id="find-closest-btn" class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors shadow">
+                Find Nearest Open Site
+            </button>
+            <div id="status-message" class="text-sm text-center text-blue-700 mt-2 font-medium h-5"></div>
+        </div>
+    </div>
+    
+    <!-- Legend -->
+     <div class="absolute bottom-4 right-4 z-20">
+        <div class="bg-white p-3 rounded-lg shadow-lg">
+            <h3 class="font-bold text-sm mb-2">Legend</h3>
+            <div class="flex items-center">
+                <div class="w-4 h-4 rounded-full bg-green-500 mr-2 border border-gray-300"></div>
+                <span class="text-xs text-gray-700">Serving Now</span>
+            </div>
+            <div class="flex items-center mt-1">
+                <div class="w-4 h-4 rounded-full bg-red-500 mr-2 border border-gray-300"></div>
+                <span class="text-xs text-gray-700">Currently Closed</span>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Loading Spinner -->
+    <div id="loading-overlay" class="absolute inset-0 bg-white bg-opacity-80 flex items-center justify-center z-50">
+        <div class="text-center">
+            <svg class="animate-spin h-10 w-10 text-blue-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p class="mt-4 text-lg font-semibold text-gray-700">Loading Meal Locations...</p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- CONFIGURATION ---
+            const GOOGLE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRpmuCVlo5jHb0hF8VtNN3grE4XGLVMZrApkTZ0GsWj_aS9EMKUGUC5cb065FKOcsQserm1DKkVNaZT/pub?output=csv&gid=1766884149';
+            const ALACHUA_COUNTY_CENTER = [29.6516, -82.3248];
+            const INITIAL_ZOOM = 10;
+
+            // --- UI ELEMENTS ---
+            const mapElement = document.getElementById('map');
+            const findClosestBtn = document.getElementById('find-closest-btn');
+            const statusMessage = document.getElementById('status-message');
+            const loadingOverlay = document.getElementById('loading-overlay');
+
+            // --- MAP INITIALIZATION ---
+            const map = L.map(mapElement).setView(ALACHUA_COUNTY_CENTER, INITIAL_ZOOM);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+
+            let locationsData = []; // To store the parsed spreadsheet data
+
+            // --- ICONS ---
+            const createIcon = (color) => {
+                return L.icon({
+                    iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41],
+                    popupAnchor: [1, -34],
+                    shadowSize: [41, 41]
+                });
+            };
+            const servingIcon = createIcon('green');
+            const closedIcon = createIcon('red');
+            const userIcon = createIcon('blue');
+
+            // --- TIME AND DATE PARSING LOGIC ---
+            
+            // A helper to parse time strings like "11:00 AM" into minutes from midnight
+            const parseTime = (timeStr) => {
+                if (!timeStr || !timeStr.includes(':')) return null;
+                const [time, modifier] = timeStr.split(' ');
+                let [hours, minutes] = time.split(':').map(Number);
+                if (modifier && modifier.toUpperCase() === 'PM' && hours < 12) {
+                    hours += 12;
+                }
+                if (modifier && modifier.toUpperCase() === 'AM' && hours === 12) {
+                    hours = 0; // Midnight case
+                }
+                return hours * 60 + minutes;
+            };
+
+            // A helper to parse day ranges like "M-Th" or "M, W, F"
+            const parseDays = (daysStr) => {
+                if (!daysStr) return [];
+                const dayMap = { 'SU': 0, 'M': 1, 'TU': 2, 'W': 3, 'TH': 4, 'F': 5, 'SA': 6 };
+                const activeDays = new Set();
+                const parts = daysStr.toUpperCase().split(/, ?/);
+                parts.forEach(part => {
+                    if (part.includes('-')) {
+                        const [start, end] = part.split('-').map(day => dayMap[day.trim()]);
+                        if (start !== undefined && end !== undefined) {
+                            for (let i = start; i <= end; i++) activeDays.add(i);
+                        }
+                    } else {
+                        const day = dayMap[part.trim()];
+                        if (day !== undefined) activeDays.add(day);
+                    }
+                });
+                return Array.from(activeDays);
+            };
+
+            // Main function to check if a location is currently open
+            const isCurrentlyServing = (item) => {
+                try {
+                    const now = new Date();
+                    const currentYear = now.getFullYear();
+                    const currentDay = now.getDay(); // 0 = Sunday, 1 = Monday...
+                    const currentTimeInMinutes = now.getHours() * 60 + now.getMinutes();
+
+                    // 1. Check Date Range (e.g., "6/3 - 8/1")
+                    if (!item.Dates || !item.Dates.includes('-')) return false;
+                    const [startStr, endStr] = item.Dates.split('-').map(s => s.trim());
+                    // We append the current year. This assumes the program runs in the same year as the service dates.
+                    const startDate = new Date(`${startStr}/${currentYear}`);
+                    const endDate = new Date(`${endStr}/${currentYear}`);
+                    endDate.setHours(23, 59, 59, 999); // Ensure end date is inclusive
+
+                    if (now < startDate || now > endDate) {
+                        return false;
+                    }
+
+                    // 2. Check Days of the Week (e.g., "M-Th")
+                    const activeDays = parseDays(item.Days);
+                    if (!activeDays.includes(currentDay)) {
+                        return false;
+                    }
+
+                    // 3. Check Serving Time (e.g., "11:00 AM - 1:00 PM")
+                    if (!item['Serving Time'] || !item['Serving Time'].includes('-')) return false;
+                    const [startTimeStr, endTimeStr] = item['Serving Time'].split('-').map(s => s.trim());
+                    const startTime = parseTime(startTimeStr);
+                    const endTime = parseTime(endTimeStr);
+
+                    if (startTime === null || endTime === null) return false;
+
+                    return currentTimeInMinutes >= startTime && currentTimeInMinutes <= endTime;
+
+                } catch (e) {
+                    console.error("Error parsing date/time for item:", item, e);
+                    return false;
+                }
+            };
+            
+            // --- DATA FETCHING AND PROCESSING ---
+            const loadData = () => {
+                Papa.parse(GOOGLE_SHEET_URL, {
+                    download: true,
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: (results) => {
+                        locationsData = results.data.filter(item => item.Latitude && item.Longitude);
+                        plotLocations(locationsData);
+                        loadingOverlay.style.display = 'none'; // Hide loading spinner
+                    },
+                    error: (err) => {
+                        console.error("Error fetching or parsing data:", err);
+                        loadingOverlay.innerHTML = '<p class="text-red-600 font-semibold">Could not load data. Please try again later.</p>';
+                    }
+                });
+            };
+
+            // --- MAP PLOTTING ---
+            const plotLocations = (locations) => {
+                locations.forEach(item => {
+                    const lat = parseFloat(item.Latitude);
+                    const lon = parseFloat(item.Longitude);
+                    
+                    const serving = isCurrentlyServing(item);
+                    const icon = serving ? servingIcon : closedIcon;
+
+                    const popupContent = `
+                        <h3 class="text-lg font-bold">${item.Site}</h3>
+                        <p><strong>Address:</strong> ${item.Address}</p>
+                        <p><strong>Dates:</strong> ${item.Dates}</p>
+                        <p><strong>Days:</strong> ${item.Days}</p>
+                        <p><strong>Serving Time:</strong> ${item['Serving Time']}</p>
+                        <p><strong>Status:</strong> <span class="font-bold ${serving ? 'text-green-600' : 'text-red-600'}">${serving ? 'Serving Now' : 'Currently Closed'}</span></p>
+                        <a href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(item.Address)}" target="_blank" class="mt-2 inline-block w-full text-center bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-3 rounded-md text-sm">Get Directions</a>
+                    `;
+
+                    const marker = L.marker([lat, lon], { icon: icon }).addTo(map);
+                    marker.bindPopup(popupContent);
+                    item.marker = marker; // Store marker for later reference
+                });
+            };
+
+            // --- GEOLOCATION AND "FIND CLOSEST" LOGIC ---
+            
+            // Haversine formula to calculate distance between two lat/lon points
+            const getDistance = (lat1, lon1, lat2, lon2) => {
+                const R = 6371; // Radius of the Earth in km
+                const dLat = (lat2 - lat1) * Math.PI / 180;
+                const dLon = (lon2 - lon1) * Math.PI / 180;
+                const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                          Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                return R * c; // Distance in km
+            }
+            
+            let userMarker = null;
+
+            findClosestBtn.addEventListener('click', () => {
+                statusMessage.textContent = 'Finding your location...';
+                if (!navigator.geolocation) {
+                    statusMessage.textContent = 'Geolocation is not supported by your browser.';
+                    return;
+                }
+
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const userLat = position.coords.latitude;
+                        const userLon = position.coords.longitude;
+                        
+                        // Add or move user's location marker
+                        if (userMarker) {
+                            userMarker.setLatLng([userLat, userLon]);
+                        } else {
+                            userMarker = L.marker([userLat, userLon], { icon: userIcon, zIndexOffset: 1000 }).addTo(map);
+                            userMarker.bindPopup("Your Location").openPopup();
+                        }
+                        
+                        // First, try to find the closest *open* location
+                        let openLocations = locationsData.filter(isCurrentlyServing);
+                        let closestLocation = null;
+                        
+                        // If there are open locations, find the closest among them
+                        if(openLocations.length > 0) {
+                            statusMessage.textContent = `Found ${openLocations.length} open sites. Finding closest...`;
+                            closestLocation = openLocations.reduce((prev, curr) => {
+                                const prevDist = getDistance(userLat, userLon, prev.Latitude, prev.Longitude);
+                                const currDist = getDistance(userLat, userLon, curr.Latitude, curr.Longitude);
+                                return prevDist < currDist ? prev : curr;
+                            });
+                        } else {
+                            // If no locations are open, find the closest overall
+                            statusMessage.textContent = 'No sites are open now. Finding the closest site for later.';
+                             closestLocation = locationsData.reduce((prev, curr) => {
+                                const prevDist = getDistance(userLat, userLon, parseFloat(prev.Latitude), parseFloat(prev.Longitude));
+                                const currDist = getDistance(userLat, userLon, parseFloat(curr.Latitude), parseFloat(curr.Longitude));
+                                return prevDist < currDist ? prev : curr;
+                            });
+                        }
+
+                        if (closestLocation) {
+                            map.flyTo([closestLocation.Latitude, closestLocation.Longitude], 14); // Zoom into the location
+                            closestLocation.marker.openPopup();
+                            statusMessage.textContent = `Closest site: ${closestLocation.Site}.`;
+                        } else {
+                           statusMessage.textContent = 'Could not find any locations.';
+                        }
+                    },
+                    () => {
+                        statusMessage.textContent = 'Unable to retrieve your location.';
+                    }
+                );
+            });
+
+            // --- INITIALIZE THE APP ---
+            loadData();
+        });
+    </script>
+</body>
+</html>
