@@ -238,7 +238,64 @@
             };
             
             // --- DATA FETCHING AND PROCESSING ---
+            const delay = (ms) => new Promise(r => setTimeout(r, ms));
+
+            const geocodeAddress = async (address) => {
+                const cacheKey = `geo_${address}`;
+                const cached = localStorage.getItem(cacheKey);
+                if (cached) return JSON.parse(cached);
+                try {
+                    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(address + ', Alachua County FL')}`;
+                    const resp = await fetch(url, { headers: { 'User-Agent': 'freesummerlunch2025 demo' } });
+                    const data = await resp.json();
+                    if (data && data[0]) {
+                        const coords = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+                        localStorage.setItem(cacheKey, JSON.stringify(coords));
+                        return coords;
+                    }
+                } catch (e) {
+                    console.error('Geocoding failed for', address, e);
+                }
+                return null;
+            };
+
+            const geocodeAll = async (items) => {
+                const progressEl = document.createElement('p');
+                progressEl.className = 'text-gray-700 mt-2';
+                loadingOverlay.appendChild(progressEl);
+                let done = 0;
+                for (const item of items) {
+                    progressEl.textContent = `Geocoding ${++done} of ${items.length}...`;
+                    const coords = await geocodeAddress(item.Address);
+                    if (coords) {
+                        item.Latitude = coords[0];
+                        item.Longitude = coords[1];
+                    }
+                    await delay(1000); // be polite with Nominatim
+                }
+                loadingOverlay.removeChild(progressEl);
+                return items.filter(i => i.Latitude && i.Longitude);
+            };
+
             const loadData = () => {
+                fetch(GOOGLE_SHEET_URL)
+                    .then(r => r.text())
+                    .then(async text => {
+                        const results = Papa.parse(text, { header: false, skipEmptyLines: true });
+                        const rows = [];
+                        results.data.forEach(row => {
+                            if (row.length < 2) return;
+                            const first = row[0].trim();
+                            if (/^Summer Meal/i.test(first) || /^Please note/i.test(first) || /^Tenga en cuenta/i.test(first) || /^All locations/i.test(first) || /^Todas las/i.test(first) || /^Click Here/i.test(first)) return;
+                            rows.push({
+                                Site: first,
+                                Address: row[1].trim(),
+                                'Serving Time': row[2] ? row[2].trim() : '',
+                                Dates: row[3] ? row[3].trim() : '',
+                                Days: row[3] ? ((row[3].match(/\(([^)]+)\)/) || [])[1] || '') : ''
+                            });
+                        });
+                        locationsData = await geocodeAll(rows);
                 Papa.parse(GOOGLE_SHEET_URL, {
                     download: true,
                     header: true,
@@ -262,6 +319,12 @@
 
                         locationsData = locationsData.filter(it => it.Latitude && it.Longitude);
                         plotLocations(locationsData);
+                        const bounds = L.latLngBounds(locationsData.map(loc => [loc.Latitude, loc.Longitude]));
+                        map.fitBounds(bounds);
+                        loadingOverlay.style.display = 'none';
+                    })
+                    .catch(err => {
+                        console.error('Error fetching or parsing data:', err);
                         const bounds = L.latLngBounds(locationsData.map(loc => [parseFloat(loc.Latitude), parseFloat(loc.Longitude)]));
                         map.fitBounds(bounds);
                         loadingOverlay.style.display = 'none'; // Hide loading spinner
@@ -269,8 +332,7 @@
                     error: (err) => {
                         console.error("Error fetching or parsing data:", err);
                         loadingOverlay.innerHTML = '<p class="text-red-600 font-semibold">Could not load data. Please try again later.</p>';
-                    }
-                });
+                    });
             };
 
             // --- MAP PLOTTING ---
