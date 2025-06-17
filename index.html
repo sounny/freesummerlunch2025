@@ -139,26 +139,8 @@
             const closedIcon = createIcon('red');
             const userIcon = createIcon('blue');
 
-            // --- GEOCODING CACHE ---
-            const geocodeCache = {};
-
-            const geocodeAddress = async (address) => {
-                if (geocodeCache[address]) return geocodeCache[address];
-                const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(address + ', Alachua County Florida')}`;
-                try {
-                    const response = await fetch(url, { headers: { 'Accept-Language': 'en' } });
-                    if (!response.ok) throw new Error('Network response was not ok');
-                    const data = await response.json();
-                    if (data && data[0]) {
-                        const coords = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-                        geocodeCache[address] = coords;
-                        return coords;
-                    }
-                } catch (e) {
-                    console.error('Geocoding failed for', address, e);
-                }
-                return null;
-            };
+            // Geocoding was previously used to look up missing coordinates,
+            // but all locations now include Latitude and Longitude in the CSV.
 
             // --- TIME AND DATE PARSING LOGIC ---
             
@@ -252,21 +234,13 @@
                                 Address: row.Address,
                                 'Serving Time': row['Meal Times'],
                                 Dates: (row['Dates of Service'] || '').split('(')[0].trim(),
-                                Days: (row['Dates of Service'] || '').match(/\(([^)]+)\)/)?.[1] || ''
+                                Days: (row['Dates of Service'] || '').match(/\(([^)]+)\)/)?.[1] || '',
+                                Latitude: parseFloat(row.Latitude),
+                                Longitude: parseFloat(row.Longitude)
                             }));
                         if (locationsData.length === 0) {
                             loadingOverlay.innerHTML = '<p class="text-red-600 font-semibold">No locations found.</p>';
                             return;
-                        }
-
-                        for (const item of locationsData) {
-                            if (!item.Latitude || !item.Longitude) {
-                                const coords = await geocodeAddress(item.Address);
-                                if (coords) {
-                                    item.Latitude = coords.lat;
-                                    item.Longitude = coords.lon;
-                                }
-                            }
                         }
 
                         locationsData = locationsData.filter(it => it.Latitude && it.Longitude);
@@ -283,18 +257,11 @@
             };
 
             // --- MAP PLOTTING ---
-            const plotLocations = async (locations) => {
+            const plotLocations = (locations) => {
                 for (const item of locations) {
-                    let lat = parseFloat(item.Latitude);
-                    let lon = parseFloat(item.Longitude);
-                    if (!lat || !lon) {
-                        const coords = await geocodeAddress(item.Address);
-                        if (!coords) continue;
-                        lat = coords.lat;
-                        lon = coords.lon;
-                        item.Latitude = lat;
-                        item.Longitude = lon;
-                    }
+                    const lat = parseFloat(item.Latitude);
+                    const lon = parseFloat(item.Longitude);
+                    if (!lat || !lon) continue;
 
                     const serving = isCurrentlyServing(item);
                     const icon = serving ? servingIcon : closedIcon;
