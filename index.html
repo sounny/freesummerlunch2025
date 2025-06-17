@@ -63,7 +63,7 @@
     <div id="map"></div>
 
     <!-- UI elements positioned over the map -->
-    <div class="absolute top-0 left-0 p-4 w-full md:w-auto z-20">
+    <div class="absolute top-0 right-0 p-4 w-full md:w-auto z-20">
         <div class="bg-white p-4 rounded-lg shadow-lg max-w-sm">
             <h1 class="text-xl font-bold text-gray-800">Alachua County Meal Sites</h1>
             <p class="text-sm text-gray-600 mt-1">Live status of free student meal locations.</p>
@@ -75,12 +75,16 @@
     </div>
     
     <!-- Legend -->
-     <div class="absolute bottom-4 right-4 z-20">
+     <div class="absolute bottom-12 right-4 z-20">
         <div class="bg-white p-3 rounded-lg shadow-lg">
             <h3 class="font-bold text-sm mb-2">Legend</h3>
             <div class="flex items-center">
                 <div class="w-4 h-4 rounded-full bg-green-500 mr-2 border border-gray-300"></div>
                 <span class="text-xs text-gray-700">Serving Now</span>
+            </div>
+            <div class="flex items-center mt-1">
+                <div class="w-4 h-4 rounded-full bg-orange-500 mr-2 border border-gray-300"></div>
+                <span class="text-xs text-gray-700">Opening Soon</span>
             </div>
             <div class="flex items-center mt-1">
                 <div class="w-4 h-4 rounded-full bg-red-500 mr-2 border border-gray-300"></div>
@@ -89,6 +93,8 @@
         </div>
     </div>
 
+    <!-- Eastern Time Clock -->
+    <div id="clock" class="absolute bottom-4 left-4 bg-white bg-opacity-80 py-1 px-3 rounded-md text-sm z-20"></div>
 
     <!-- Loading Spinner -->
     <div id="loading-overlay" class="absolute inset-0 bg-white bg-opacity-80 flex items-center justify-center z-50">
@@ -114,6 +120,14 @@
             const findClosestBtn = document.getElementById('find-closest-btn');
             const statusMessage = document.getElementById('status-message');
             const loadingOverlay = document.getElementById('loading-overlay');
+            const clockElement = document.getElementById('clock');
+
+            const getEasternNow = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+            const updateClock = () => {
+                clockElement.textContent = getEasternNow().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' }) + ' ET';
+            };
+            setInterval(updateClock, 1000);
+            updateClock();
 
             // --- MAP INITIALIZATION ---
             const map = L.map(mapElement).setView(ALACHUA_COUNTY_CENTER, INITIAL_ZOOM);
@@ -136,6 +150,7 @@
                 });
             };
             const servingIcon = createIcon('green');
+            const openingSoonIcon = createIcon('orange');
             const closedIcon = createIcon('red');
             const userIcon = createIcon('blue');
 
@@ -181,7 +196,7 @@
             // Main function to check if a location is currently open
             const isCurrentlyServing = (item) => {
                 try {
-                    const now = new Date();
+                    const now = getEasternNow();
                     const currentYear = now.getFullYear();
                     const currentDay = now.getDay(); // 0 = Sunday, 1 = Monday...
                     const currentTimeInMinutes = now.getHours() * 60 + now.getMinutes();
@@ -216,6 +231,40 @@
 
                 } catch (e) {
                     console.error("Error parsing date/time for item:", item, e);
+                    return false;
+                }
+            };
+
+            const isOpeningSoon = (item) => {
+                try {
+                    const now = getEasternNow();
+                    const currentYear = now.getFullYear();
+                    const currentDay = now.getDay();
+                    const currentTimeInMinutes = now.getHours() * 60 + now.getMinutes();
+
+                    if (!item.Dates || !item.Dates.includes('-')) return false;
+                    const [startStr, endStr] = item.Dates.split('-').map(s => s.trim());
+                    const startDate = new Date(`${startStr}/${currentYear}`);
+                    const endDate = new Date(`${endStr}/${currentYear}`);
+                    endDate.setHours(23, 59, 59, 999);
+                    if (now < startDate || now > endDate) {
+                        return false;
+                    }
+
+                    const activeDays = parseDays(item.Days);
+                    if (!activeDays.includes(currentDay)) {
+                        return false;
+                    }
+
+                    if (!item['Serving Time'] || !item['Serving Time'].includes('-')) return false;
+                    const [startTimeStr, endTimeStr] = item['Serving Time'].split('-').map(s => s.trim());
+                    const startTime = parseTime(startTimeStr);
+                    const endTime = parseTime(endTimeStr);
+                    if (startTime === null || endTime === null) return false;
+
+                    return currentTimeInMinutes < startTime && startTime - currentTimeInMinutes <= 60;
+
+                } catch(e) {
                     return false;
                 }
             };
@@ -264,7 +313,8 @@
                     if (!lat || !lon) continue;
 
                     const serving = isCurrentlyServing(item);
-                    const icon = serving ? servingIcon : closedIcon;
+                    const openingSoon = !serving && isOpeningSoon(item);
+                    const icon = serving ? servingIcon : openingSoon ? openingSoonIcon : closedIcon;
 
                     const popupContent = `
                         <h3 class="text-lg font-bold">${item.Site}</h3>
@@ -272,7 +322,7 @@
                         <p><strong>Dates:</strong> ${item.Dates}</p>
                         <p><strong>Days:</strong> ${item.Days}</p>
                         <p><strong>Serving Time:</strong> ${item['Serving Time']}</p>
-                        <p><strong>Status:</strong> <span class="font-bold ${serving ? 'text-green-600' : 'text-red-600'}">${serving ? 'Serving Now' : 'Currently Closed'}</span></p>
+                        <p><strong>Status:</strong> <span class="font-bold ${serving ? 'text-green-600' : openingSoon ? 'text-orange-600' : 'text-red-600'}">${serving ? 'Serving Now' : openingSoon ? 'Opening Soon' : 'Currently Closed'}</span></p>
                         <a href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(item.Address)}" target="_blank" class="mt-2 inline-block w-full text-center bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-3 rounded-md text-sm">Get Directions</a>
                     `;
 
