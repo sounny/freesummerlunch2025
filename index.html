@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Alachua County Student Lunch Locations</title>
+    <title>Alachua County Summer Meals</title>
 
     <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -77,14 +77,17 @@
     <!-- Legend -->
      <div class="absolute bottom-12 right-4 z-20">
         <div class="bg-white p-3 rounded-lg shadow-lg">
-            <h3 class="font-bold text-sm mb-2">Legend</h3>
-            <div class="flex items-center">
+            <div class="flex items-center mt-1">
+                <div class="w-4 h-4 rounded-full bg-blue-500 mr-2 border border-gray-300"></div>
+                <span class="text-xs text-gray-700">Opening Soon</span>
+            </div>
+            <div class="flex items-center mt-1">
                 <div class="w-4 h-4 rounded-full bg-green-500 mr-2 border border-gray-300"></div>
                 <span class="text-xs text-gray-700">Serving Now</span>
             </div>
             <div class="flex items-center mt-1">
                 <div class="w-4 h-4 rounded-full bg-orange-500 mr-2 border border-gray-300"></div>
-                <span class="text-xs text-gray-700">Opening Soon</span>
+                <span class="text-xs text-gray-700">Closing Soon</span>
             </div>
             <div class="flex items-center mt-1">
                 <div class="w-4 h-4 rounded-full bg-red-500 mr-2 border border-gray-300"></div>
@@ -111,7 +114,7 @@
         document.addEventListener('DOMContentLoaded', () => {
             // --- CONFIGURATION ---
             // Data comes from a local CSV exported from the school district
-            const DATA_URL = 'data.csv';
+            const DATA_URL = 'data3.csv';
             const ALACHUA_COUNTY_CENTER = [29.6516, -82.3248];
             const INITIAL_ZOOM = 10;
 
@@ -124,16 +127,58 @@
 
             const getEasternNow = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
             const updateClock = () => {
-                clockElement.textContent = getEasternNow().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' }) + ' ET';
+                clockElement.textContent = getEasternNow().toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'short' });
             };
             setInterval(updateClock, 1000);
             updateClock();
 
             // --- MAP INITIALIZATION ---
-            const map = L.map(mapElement).setView(ALACHUA_COUNTY_CENTER, INITIAL_ZOOM);
+            const map = L.map(mapElement, { zoomControl: false }).setView(ALACHUA_COUNTY_CENTER, INITIAL_ZOOM);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             }).addTo(map);
+            // Add zoom control to top-right
+            L.control.zoom({ position: 'topright' }).addTo(map);
+            // Custom Find Me button control
+            const FindMeControl = L.Control.extend({
+                options: { position: 'topright' },
+                onAdd: function(m) {
+                    const c = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+                    c.innerHTML = '<a href="#" title="Find Me">📍</a>';
+                    L.DomEvent.on(c, 'click', () => {
+                        if (!navigator.geolocation) {
+                            alert("Geolocation not supported by your browser.");
+                            return;
+                        }
+                        navigator.geolocation.getCurrentPosition(position => {
+                            const lat = position.coords.latitude;
+                            const lon = position.coords.longitude;
+                            if (userMarker) {
+                                userMarker.setLatLng([lat, lon]);
+                            } else {
+                                userMarker = L.marker([lat, lon], { icon: userIcon, zIndexOffset: 1000 }).addTo(m);
+                                userMarker.bindPopup("Your Location").openPopup();
+                            }
+                            m.setView([lat, lon], 14);
+                        });
+                    });
+                    return c;
+                }
+            });
+            map.addControl(new FindMeControl());
+            // Custom Home button control
+            const HomeControl = L.Control.extend({
+                options: { position: 'topright' },
+                onAdd: function(m) {
+                    const c = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+                    c.innerHTML = '<a href="#" title="Home">🏠</a>';
+                    L.DomEvent.on(c, 'click', () => {
+                        m.setView(ALACHUA_COUNTY_CENTER, INITIAL_ZOOM);
+                    });
+                    return c;
+                }
+            });
+            map.addControl(new HomeControl());
 
             let locationsData = []; // To store the parsed spreadsheet data
             const markers = []; // Keep track of added markers
