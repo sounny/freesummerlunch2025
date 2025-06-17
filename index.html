@@ -63,7 +63,7 @@
     <div id="map"></div>
 
     <!-- UI elements positioned over the map -->
-    <div class="absolute top-0 right-0 p-4 w-full md:w-auto z-20">
+    <div class="absolute top-0 left-0 p-4 w-full md:w-auto z-20">
         <div class="bg-white p-4 rounded-lg shadow-lg max-w-sm">
             <h1 class="text-xl font-bold text-gray-800">Alachua County Meal Sites</h1>
             <p class="text-sm text-gray-600 mt-1">Live status of free student meal locations.</p>
@@ -114,9 +114,9 @@
         document.addEventListener('DOMContentLoaded', () => {
             // --- CONFIGURATION ---
             // Data comes from a local CSV exported from the school district
-            const DATA_URL = 'data3.csv';
+            const DATA_URL = 'data4.csv';
             const ALACHUA_COUNTY_CENTER = [29.6516, -82.3248];
-            const INITIAL_ZOOM = 10;
+            const INITIAL_ZOOM = 12;
 
             // --- UI ELEMENTS ---
             const mapElement = document.getElementById('map');
@@ -195,7 +195,8 @@
                 });
             };
             const servingIcon = createIcon('green');
-            const openingSoonIcon = createIcon('orange');
+            const openingSoonIcon = createIcon('blue'); // Changed from orange to blue
+            const closingSoonIcon = createIcon('orange'); // Added for closing soon
             const closedIcon = createIcon('red');
             const userIcon = createIcon('blue');
 
@@ -203,41 +204,51 @@
             // but all locations now include Latitude and Longitude in the CSV.
 
             // --- TIME AND DATE PARSING LOGIC ---
-            
-            // A helper to parse time strings like "11:00 AM" into minutes from midnight
-            const parseTime = (timeStr) => {
-                if (!timeStr || !timeStr.includes(':')) return null;
-                const [time, modifier] = timeStr.split(' ');
-                let [hours, minutes] = time.split(':').map(Number);
-                if (modifier && modifier.toUpperCase() === 'PM' && hours < 12) {
-                    hours += 12;
-                }
-                if (modifier && modifier.toUpperCase() === 'AM' && hours === 12) {
-                    hours = 0; // Midnight case
-                }
-                return hours * 60 + minutes;
+            // Helper to get today's date string in YYYY-MM-DD (Eastern Time)
+            const getTodayKey = () => {
+                const now = getEasternNow();
+                return now.toISOString().slice(0, 10);
             };
-
-            // A helper to parse day ranges like "M-Th" or "M, W, F"
-            const parseDays = (daysStr) => {
-                if (!daysStr) return [];
-                const dayMap = { 'SU': 0, 'M': 1, 'TU': 2, 'W': 3, 'TH': 4, 'F': 5, 'SA': 6 };
-                const activeDays = new Set();
-                const parts = daysStr.toUpperCase().split(/, ?/);
-                parts.forEach(part => {
-                    if (part.includes('-')) {
-                        const [start, end] = part.split('-').map(day => dayMap[day.trim()]);
-                        if (start !== undefined && end !== undefined) {
-                            for (let i = start; i <= end; i++) activeDays.add(i);
-                        }
-                    } else {
-                        const day = dayMap[part.trim()];
-                        if (day !== undefined) activeDays.add(day);
-                    }
+            // Helper to parse a time range string (e.g. 08:45-09:15;11:00-11:30)
+            function parseTimeRanges(ranges) {
+                if (!ranges) return [];
+                return ranges.split(';').map(rng => {
+                    const [start, end] = rng.split('-').map(s => s.trim());
+                    return { start, end };
                 });
-                return Array.from(activeDays);
-            };
-
+            }
+            // Helper to check if now is within any time range
+            function isNowInRanges(ranges) {
+                const now = getEasternNow();
+                const nowStr = now.toTimeString().slice(0,5);
+                for (const {start, end} of ranges) {
+                    if (start <= nowStr && nowStr <= end) return true;
+                }
+                return false;
+            }
+            // Helper to check if now is within 60 min before any start (opening soon)
+            function isOpeningSoonRanges(ranges) {
+                const now = getEasternNow();
+                for (const {start} of ranges) {
+                    const [h, m] = start.split(':').map(Number);
+                    const startMins = h*60 + m;
+                    const nowMins = now.getHours()*60 + now.getMinutes();
+                    if (nowMins < startMins && startMins - nowMins <= 60) return true;
+                }
+                return false;
+            }
+            // Helper to check if now is within 60 min before any end (closing soon)
+            function isClosingSoonRanges(ranges) {
+                const now = getEasternNow();
+                for (const {start, end} of ranges) {
+                    const [eh, em] = end.split(':').map(Number);
+                    const endMins = eh*60 + em;
+                    const nowMins = now.getHours()*60 + now.getMinutes();
+                    if (nowMins >= (endMins-60) && nowMins < endMins && nowMins >= (start.split(':')[0]*60 + Number(start.split(':')[1]))) return true;
+                }
+                return false;
+            }
+            
             // Main function to check if a location is currently open
             const isCurrentlyServing = (item) => {
                 try {
@@ -304,12 +315,55 @@
                     if (!item['Serving Time'] || !item['Serving Time'].includes('-')) return false;
                     const [startTimeStr, endTimeStr] = item['Serving Time'].split('-').map(s => s.trim());
                     const startTime = parseTime(startTimeStr);
+                    const endTime = parseTime(endTimeStr); // Ensure endTime is parsed
+                    if (startTime === null || endTime === null) return false;
+
+                    // Opening soon if current time is before start time, but within 60 minutes of start time
+                    // And also not already past the end time (for very short serving windows)
+                    return currentTimeInMinutes < startTime && (startTime - currentTimeInMinutes <= 60) && currentTimeInMinutes < endTime;
+
+                } catch(e) {
+                    console.error("Error in isOpeningSoon:", item, e);
+                    return false;
+                }
+            };
+
+            const isClosingSoon = (item) => {
+                try {
+                    const now = getEasternNow();
+                    const currentYear = now.getFullYear();
+                    const currentDay = now.getDay();
+                    const currentTimeInMinutes = now.getHours() * 60 + now.getMinutes();
+
+                    // Must be within the general operating dates
+                    if (!item.Dates || !item.Dates.includes('-')) return false;
+                    const [startStr, endStr] = item.Dates.split('-').map(s => s.trim());
+                    const startDate = new Date(`${startStr}/${currentYear}`);
+                    const endDate = new Date(`${endStr}/${currentYear}`);
+                    endDate.setHours(23, 59, 59, 999);
+                    if (now < startDate || now > endDate) {
+                        return false;
+                    }
+
+                    // Must be an active day
+                    const activeDays = parseDays(item.Days);
+                    if (!activeDays.includes(currentDay)) {
+                        return false;
+                    }
+
+                    // Must have valid serving times
+                    if (!item['Serving Time'] || !item['Serving Time'].includes('-')) return false;
+                    const [startTimeStr, endTimeStr] = item['Serving Time'].split('-').map(s => s.trim());
+                    const startTime = parseTime(startTimeStr);
                     const endTime = parseTime(endTimeStr);
                     if (startTime === null || endTime === null) return false;
 
-                    return currentTimeInMinutes < startTime && startTime - currentTimeInMinutes <= 60;
+                    // Closing soon if current time is before end time, but within 60 minutes of end time
+                    // And also after the start time (i.e., it was or is serving)
+                    return currentTimeInMinutes >= startTime && currentTimeInMinutes < endTime && (endTime - currentTimeInMinutes <= 60);
 
                 } catch(e) {
+                    console.error("Error in isClosingSoon:", item, e);
                     return false;
                 }
             };
@@ -322,21 +376,11 @@
                     skipEmptyLines: true,
                     complete: async (results) => {
                         locationsData = results.data
-                            .filter(item => item.Address && !item.Location.startsWith('NOTE'))
-                            .map(row => ({
-                                Site: row.Location,
-                                Address: row.Address,
-                                'Serving Time': row['Meal Times'],
-                                Dates: (row['Dates of Service'] || '').split('(')[0].trim(),
-                                Days: (row['Dates of Service'] || '').match(/\(([^)]+)\)/)?.[1] || '',
-                                Latitude: parseFloat(row.Latitude),
-                                Longitude: parseFloat(row.Longitude)
-                            }));
+                            .filter(item => item.Address && !item.Location.startsWith('NOTE'));
                         if (locationsData.length === 0) {
                             loadingOverlay.innerHTML = '<p class="text-red-600 font-semibold">No locations found.</p>';
                             return;
                         }
-
                         locationsData = locationsData.filter(it => it.Latitude && it.Longitude);
                         plotLocations(locationsData);
                         const bounds = L.latLngBounds(locationsData.map(loc => [parseFloat(loc.Latitude), parseFloat(loc.Longitude)]));
@@ -352,28 +396,46 @@
 
             // --- MAP PLOTTING ---
             const plotLocations = (locations) => {
+                const todayKey = getTodayKey();
                 for (const item of locations) {
                     const lat = parseFloat(item.Latitude);
                     const lon = parseFloat(item.Longitude);
                     if (!lat || !lon) continue;
-
-                    const serving = isCurrentlyServing(item);
-                    const openingSoon = !serving && isOpeningSoon(item);
-                    const icon = serving ? servingIcon : openingSoon ? openingSoonIcon : closedIcon;
-
+                    const todayRanges = parseTimeRanges(item[todayKey]);
+                    const serving = todayRanges.length > 0 && isNowInRanges(todayRanges);
+                    const opening = todayRanges.length > 0 && !serving && isOpeningSoonRanges(todayRanges);
+                    const closing = todayRanges.length > 0 && !serving && !opening && isClosingSoonRanges(todayRanges);
+                    let icon;
+                    let statusText;
+                    let statusColor;
+                    if (serving) {
+                        icon = servingIcon;
+                        statusText = 'Serving Now';
+                        statusColor = 'text-green-600';
+                    } else if (opening) {
+                        icon = openingSoonIcon;
+                        statusText = 'Opening Soon';
+                        statusColor = 'text-blue-600';
+                    } else if (closing) {
+                        icon = closingSoonIcon;
+                        statusText = 'Closing Soon';
+                        statusColor = 'text-orange-600';
+                    } else {
+                        icon = closedIcon;
+                        statusText = 'Currently Closed';
+                        statusColor = 'text-red-600';
+                    }
                     const popupContent = `
-                        <h3 class="text-lg font-bold">${item.Site}</h3>
+                        <h3 class="text-lg font-bold">${item.Location}</h3>
                         <p><strong>Address:</strong> ${item.Address}</p>
-                        <p><strong>Dates:</strong> ${item.Dates}</p>
-                        <p><strong>Days:</strong> ${item.Days}</p>
-                        <p><strong>Serving Time:</strong> ${item['Serving Time']}</p>
-                        <p><strong>Status:</strong> <span class="font-bold ${serving ? 'text-green-600' : openingSoon ? 'text-orange-600' : 'text-red-600'}">${serving ? 'Serving Now' : openingSoon ? 'Opening Soon' : 'Currently Closed'}</span></p>
+                        <p><strong>Dates:</strong> ${item['Dates of Service']}</p>
+                        <p><strong>Today's Hours:</strong> ${item[todayKey] || 'Closed'}</p>
+                        <p><strong>Status:</strong> <span class="font-bold ${statusColor}">${statusText}</span></p>
                         <a href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(item.Address)}" target="_blank" class="mt-2 inline-block w-full text-center bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-3 rounded-md text-sm">Get Directions</a>
                     `;
-
                     const marker = L.marker([lat, lon], { icon: icon }).addTo(map);
                     marker.bindPopup(popupContent);
-                    item.marker = marker; // Store marker for later reference
+                    item.marker = marker;
                     markers.push(marker);
                 }
             };
