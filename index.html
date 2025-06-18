@@ -66,7 +66,7 @@
     <div class="absolute top-0 left-0 p-4 w-full md:w-auto z-20">
         <div class="bg-white p-4 rounded-lg shadow-lg max-w-sm">
             <h1 class="text-xl font-bold text-gray-800">Alachua County Meal Sites</h1>
-            <p class="text-sm text-gray-600 mt-1">Live status of free student meal locations.</p>
+            <p class="text-sm text-gray-600 mt-1">Live status of free student meal locations. <a href="https://docs.google.com/spreadsheets/d/e/2PACX-1vRpmuCVlo5jHb0hF8VtNN3grE4XGLVMZrApkTZ0GsWj_aS9EMKUGUC5cb065FKOcsQserm1DKkVNaZT/pubhtml?gid=1766884149&single=true&urp=gmail_link" target="_blank" class="text-blue-600 underline">Source</a></p>
             <button id="find-closest-btn" class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors shadow">
                 Find Nearest Open Site
             </button>
@@ -428,6 +428,7 @@
                     const popupContent = `
                         <h3 class="text-lg font-bold">${item.Location}</h3>
                         <p><strong>Address:</strong> ${item.Address}</p>
+                        <p><strong>Meal Times:</strong> ${item['Meal Times']}</p>
                         <p><strong>Dates:</strong> ${item['Dates of Service']}</p>
                         <p><strong>Today's Hours:</strong> ${item[todayKey] || 'Closed'}</p>
                         <p><strong>Status:</strong> <span class="font-bold ${statusColor}">${statusText}</span></p>
