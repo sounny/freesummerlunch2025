@@ -237,14 +237,17 @@
                 }
                 return false;
             }
-            // Helper to check if now is within 60 min before any end (closing soon)
+            // Helper to check if now is within 10 min before any end (closing soon)
             function isClosingSoonRanges(ranges) {
+                const THRESHOLD = 10; // minutes
                 const now = getEasternNow();
                 for (const {start, end} of ranges) {
                     const [eh, em] = end.split(':').map(Number);
-                    const endMins = eh*60 + em;
-                    const nowMins = now.getHours()*60 + now.getMinutes();
-                    if (nowMins >= (endMins-60) && nowMins < endMins && nowMins >= (start.split(':')[0]*60 + Number(start.split(':')[1]))) return true;
+                    const endMins = eh * 60 + em;
+                    const nowMins = now.getHours() * 60 + now.getMinutes();
+                    const [sh, sm] = start.split(':').map(Number);
+                    const startMins = sh * 60 + sm;
+                    if (nowMins >= startMins && nowMins < endMins && endMins - nowMins <= THRESHOLD) return true;
                 }
                 return false;
             }
@@ -358,9 +361,9 @@
                     const endTime = parseTime(endTimeStr);
                     if (startTime === null || endTime === null) return false;
 
-                    // Closing soon if current time is before end time, but within 60 minutes of end time
-                    // And also after the start time (i.e., it was or is serving)
-                    return currentTimeInMinutes >= startTime && currentTimeInMinutes < endTime && (endTime - currentTimeInMinutes <= 60);
+                    // Closing soon if end time is within 10 minutes and we are currently serving
+                    const THRESHOLD = 10;
+                    return currentTimeInMinutes >= startTime && currentTimeInMinutes < endTime && (endTime - currentTimeInMinutes <= THRESHOLD);
 
                 } catch(e) {
                     console.error("Error in isClosingSoon:", item, e);
@@ -402,13 +405,17 @@
                     const lon = parseFloat(item.Longitude);
                     if (!lat || !lon) continue;
                     const todayRanges = parseTimeRanges(item[todayKey]);
-                    const serving = todayRanges.length > 0 && isNowInRanges(todayRanges);
-                    const opening = todayRanges.length > 0 && !serving && isOpeningSoonRanges(todayRanges);
-                    const closing = todayRanges.length > 0 && !serving && !opening && isClosingSoonRanges(todayRanges);
+                    const closing = todayRanges.length > 0 && isClosingSoonRanges(todayRanges);
+                    const serving = todayRanges.length > 0 && !closing && isNowInRanges(todayRanges);
+                    const opening = todayRanges.length > 0 && !serving && !closing && isOpeningSoonRanges(todayRanges);
                     let icon;
                     let statusText;
                     let statusColor;
-                    if (serving) {
+                    if (closing) {
+                        icon = closingSoonIcon;
+                        statusText = 'Closing Soon';
+                        statusColor = 'text-orange-600';
+                    } else if (serving) {
                         icon = servingIcon;
                         statusText = 'Serving Now';
                         statusColor = 'text-green-600';
@@ -416,10 +423,6 @@
                         icon = openingSoonIcon;
                         statusText = 'Opening Soon';
                         statusColor = 'text-blue-600';
-                    } else if (closing) {
-                        icon = closingSoonIcon;
-                        statusText = 'Closing Soon';
-                        statusColor = 'text-orange-600';
                     } else {
                         icon = closedIcon;
                         statusText = 'Currently Closed';
