@@ -7,3 +7,4 @@ After completing a task or commit, append bullet points describing what you chan
 
 - Initialized AGENTS.md with instructions.
 - Ran parser.py for sanity; no repo changes.
+- Added welcome overlay with educational disclaimer.
