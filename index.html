@@ -59,6 +59,15 @@
 </head>
 <body class="bg-gray-100">
 
+    <!-- Welcome overlay shown on first load -->
+    <div id="welcome-overlay" class="absolute inset-0 bg-white bg-opacity-95 flex items-center justify-center" style="z-index:100;">
+        <div class="bg-white p-6 rounded-lg shadow-lg text-center max-w-md">
+            <h2 class="text-xl font-bold mb-2">Thanks for checking out the site!</h2>
+            <p class="text-gray-700">Summer lunch is over for 2025. This site is kept online for educational purposes only and is not meant to provide current information.</p>
+            <button id="welcome-btn" class="mt-4 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">Enter Site</button>
+        </div>
+    </div>
+
     <!-- Main map container -->
     <div id="map"></div>
 
@@ -124,6 +133,11 @@
             const statusMessage = document.getElementById('status-message');
             const loadingOverlay = document.getElementById('loading-overlay');
             const clockElement = document.getElementById('clock');
+            const welcomeOverlay = document.getElementById('welcome-overlay');
+            const welcomeBtn = document.getElementById('welcome-btn');
+            welcomeBtn.addEventListener('click', () => {
+                welcomeOverlay.style.display = 'none';
+            });
 
             const getEasternNow = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
             const updateClock = () => {
